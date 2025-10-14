@@ -1,0 +1,148 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Core models for a ManyChat-like system
+
+model Workspace {
+  id            String         @id @default(cuid())
+  name          String
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  users         User[]
+  contacts      Contact[]
+  flows         Flow[]
+  conversations Conversation[]
+}
+
+model User {
+  id          String    @id @default(cuid())
+  email       String    @unique
+  name        String?
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+enum Channel {
+  WEB
+  WHATSAPP
+  TELEGRAM
+  MESSENGER
+}
+
+model Contact {
+  id          String     @id @default(cuid())
+  workspaceId String
+  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String?
+  phone       String?
+  locale      String?
+  channel     Channel
+  externalId  String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  conversations Conversation[]
+}
+
+model Flow {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  published   Boolean   @default(false)
+  diagram     Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  nodes       FlowNode[]
+  edges       FlowEdge[]
+}
+
+enum FlowNodeType {
+  START
+  MESSAGE
+  QUESTION
+  CONDITION
+  ACTION
+  DELAY
+}
+
+model FlowNode {
+  id         String       @id @default(cuid())
+  flowId     String
+  flow       Flow         @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  type       FlowNodeType
+  data       Json
+  positionX  Float
+  positionY  Float
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  incomingEdges FlowEdge[] @relation("EdgeTarget")
+  outgoingEdges FlowEdge[] @relation("EdgeSource")
+}
+
+model FlowEdge {
+  id           String    @id @default(cuid())
+  flowId       String
+  flow         Flow      @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  sourceNodeId String
+  sourceNode   FlowNode  @relation("EdgeSource", fields: [sourceNodeId], references: [id], onDelete: Cascade)
+  targetNodeId String
+  targetNode   FlowNode  @relation("EdgeTarget", fields: [targetNodeId], references: [id], onDelete: Cascade)
+  label        String?
+  data         Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+enum ConversationStatus {
+  OPEN
+  CLOSED
+}
+
+enum MessageRole {
+  CONTACT
+  BOT
+  AGENT
+  SYSTEM
+}
+
+model Conversation {
+  id          String              @id @default(cuid())
+  workspaceId String
+  workspace   Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contactId   String
+  contact     Contact             @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  status      ConversationStatus  @default(OPEN)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  messages    Message[]
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           MessageRole
+  content        String
+  payload        Json?
+  direction      String?
+  sentAt         DateTime     @default(now())
+  createdAt      DateTime     @default(now())
+}
