@@ -1,0 +1,10 @@
+{
+  "app.name": "Rently",
+  "hero.title": "Smart Property Management for the Middle East",
+  "hero.subtitle": "Manage properties, tenants, and rent — Arabic-first",
+  "cta.start": "Start free trial",
+  "cta.demo": "Book a demo",
+  "nav.dashboard": "Dashboard",
+  "nav.login": "Log in",
+  "dashboard.welcome": "Welcome, {name}!"
+}
