@@ -1,0 +1,355 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// =============================
+// Auth models (NextAuth v5)
+// =============================
+
+enum UserRole {
+  ADMIN
+  OWNER
+  MANAGER
+  FINANCE
+  STAFF
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+
+  // Local auth
+  passwordHash String?
+
+  role UserRole @default(STAFF)
+
+  // Relations
+  accounts             Account[]
+  sessions             Session[]
+  memberships          OrganizationMember[]
+  organizationsCreated Organization[]       @relation("UserCreatedOrganizations")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @map("refreshToken")
+  access_token      String? @map("accessToken")
+  expires_at        Int?    @map("expiresAt")
+  token_type        String? @map("tokenType")
+  scope             String?
+  id_token          String? @map("idToken")
+  session_state     String? @map("sessionState")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+  createdAt  DateTime @default(now())
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// =============================
+// Core domain models
+// =============================
+
+model Organization {
+  id              String @id @default(cuid())
+  name            String
+  slug            String @unique
+  createdByUserId String
+
+  members        OrganizationMember[]
+  buildings      Building[]
+  tenants        Tenant[]
+  leases         Lease[]
+  gatewayConfigs PaymentGatewayConfig[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  createdBy User @relation("UserCreatedOrganizations", fields: [createdByUserId], references: [id])
+}
+
+enum OrganizationRole {
+  OWNER
+  MANAGER
+  FINANCE
+  STAFF
+}
+
+model OrganizationMember {
+  id             String           @id @default(cuid())
+  organizationId String
+  userId         String
+  role           OrganizationRole @default(STAFF)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, userId])
+}
+
+model Building {
+  id             String  @id @default(cuid())
+  organizationId String
+  name           String
+  address        String?
+  city           String?
+  country        String?
+
+  units Unit[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+enum UnitStatus {
+  VACANT
+  OCCUPIED
+  MAINTENANCE
+}
+
+model Unit {
+  id         String     @id @default(cuid())
+  buildingId String
+  unitNumber String
+  bedrooms   Int?
+  bathrooms  Int?
+  sizeSqm    Float?
+  rentAmount Decimal?
+  currency   String?    @default("USD")
+  status     UnitStatus @default(VACANT)
+
+  leases Lease[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  building Building @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+
+  @@unique([buildingId, unitNumber])
+}
+
+model Tenant {
+  id             String  @id @default(cuid())
+  organizationId String
+  fullName       String
+  email          String?
+  phone          String?
+  nationalId     String?
+
+  leases Lease[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+enum PaymentFrequency {
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum LeaseStatus {
+  DRAFT
+  ACTIVE
+  ENDED
+  TERMINATED
+}
+
+model Lease {
+  id               String           @id @default(cuid())
+  organizationId   String
+  unitId           String
+  tenantId         String
+  startDate        DateTime
+  endDate          DateTime
+  rentAmount       Decimal
+  currency         String           @default("USD")
+  paymentFrequency PaymentFrequency @default(MONTHLY)
+  depositAmount    Decimal?
+  status           LeaseStatus      @default(DRAFT)
+  contractUrl      String?
+
+  invoices Invoice[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  unit         Unit         @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+enum InvoiceStatus {
+  DUE
+  PAID
+  PARTIAL
+  OVERDUE
+  CANCELED
+}
+
+model Invoice {
+  id       String        @id @default(cuid())
+  leaseId  String
+  number   String        @unique
+  dueDate  DateTime
+  amount   Decimal
+  currency String        @default("USD")
+  status   InvoiceStatus @default(DUE)
+  issuedAt DateTime      @default(now())
+  paidAt   DateTime?
+
+  payments  Payment[]
+  reminders Reminder[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lease Lease @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+}
+
+enum PaymentMethod {
+  ONLINE
+  CASH
+  BANK_TRANSFER
+}
+
+enum PaymentGateway {
+  PAYTABS
+  MADA
+  STC_PAY
+  OTHER
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+model Payment {
+  id         String          @id @default(cuid())
+  invoiceId  String
+  amount     Decimal
+  currency   String          @default("USD")
+  method     PaymentMethod   @default(ONLINE)
+  gateway    PaymentGateway?
+  status     PaymentStatus   @default(PENDING)
+  externalId String?
+  receiptUrl String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+}
+
+enum ReminderChannel {
+  SMS
+  EMAIL
+  WHATSAPP
+}
+
+enum ReminderStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+model Reminder {
+  id          String          @id @default(cuid())
+  invoiceId   String
+  channel     ReminderChannel
+  scheduledAt DateTime
+  sentAt      DateTime?
+  status      ReminderStatus  @default(PENDING)
+  error       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+}
+
+enum GatewayProvider {
+  PAYTABS
+  MADA
+  STC_PAY
+}
+
+model PaymentGatewayConfig {
+  id             String          @id @default(cuid())
+  organizationId String
+  provider       GatewayProvider
+  apiKey         String?
+  merchantId     String?
+  secret         String?
+  isActive       Boolean         @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, provider])
+}
+
+model WebhookEvent {
+  id          String    @id @default(cuid())
+  provider    String
+  eventType   String
+  payload     Json
+  receivedAt  DateTime  @default(now())
+  processedAt DateTime?
+  status      String    @default("RECEIVED")
+}
